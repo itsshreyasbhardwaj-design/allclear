@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests on Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 is the floor the package claims, so the floor is tested.
+        python: ["3.9", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Unit tests
+        run: PYTHONPATH=src python -m unittest discover -s tests -t . -v
+
+  install:
+    name: Installs and runs as a package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - name: The entry point works
+        run: |
+          allclear --version
+          allclear --help > /dev/null
+          allclear baseline --help > /dev/null
+      - name: No runtime dependencies crept in
+        run: |
+          # `pip install -e .` on a zero-dependency project should add nothing
+          # but the project itself. If this starts failing, a dependency was
+          # added without updating the promise in the README.
+          python - <<'PY'
+          import importlib.metadata as md
+          reqs = md.requires("allclear") or []
+          hard = [r for r in reqs if "extra ==" not in r]
+          assert not hard, f"unexpected runtime dependencies: {hard}"
+          print("zero runtime dependencies, as advertised")
+          PY
+
+  selftest:
+    name: Pinned tool digests still match upstream
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Verify gitleaks digests
+        run: PYTHONPATH=src python -m allclear selftest
